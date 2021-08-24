@@ -14,16 +14,18 @@ interface IPool is IERC20 {}
 
 contract Chef3 {
     
+    // liquidity * seconds
+    // we spread our rewards over some surface area
     struct Incentive {
         uint32 startTime;
         uint32 endTime;
-        uint128 unclaimedRewards;
-        uint224 liquiditySecondsClaimed; // liquidity * seconds accumulated over time (surface area) that we reward
+        uint128 totalRewards;
+        uint224 liquiditySecondsStart;
         uint224 liquiditySecondsFinal;
         IERC20 token;
     }
 
-    struct State {
+    struct PoolState {
         uint224 liquiditySeconds;
         uint32 lastUpdate;
     }
@@ -33,7 +35,7 @@ contract Chef3 {
         uint32 createdAt;
     }
 
-    mapping(IPool => State) public poolState;
+    mapping(IPool => PoolState) public poolState;
 
     mapping(address => mapping(IPool => Stake)) public stakes;
     
@@ -54,8 +56,8 @@ contract Chef3 {
         incentive.startTime = uint32(block.timestamp);
         require(incentive.startTime < incentive.endTime, "");
         require(incentive.liquiditySecondsFinal == 0, "This is set automatically at the end");
-        incentive.token.transferFrom(msg.sender, address(this), incentive.unclaimedRewards);
-        incentive.liquiditySecondsClaimed = poolState[pool].liquiditySeconds;
+        incentive.token.transferFrom(msg.sender, address(this), incentive.totalRewards);
+        incentive.liquiditySecondsStart = poolState[pool].liquiditySeconds;
         incentives[pool][incentiveCount[pool]++] = incentive;
     }
 
@@ -77,14 +79,15 @@ contract Chef3 {
                 incentive.liquiditySecondsFinal = lastLiquiditySeconds;
                 incentive.endTime = uint32(block.timestamp);
             }
-            uint256 totalLS = lastLiquiditySeconds - incentive.liquiditySecondsClaimed;
-            uint256 startTime = max(userStake.createdAt, incentive.startTime);
-            uint256 endTime = min(block.timestamp, incentive.endTime);
-            uint256 userLS = userStake.liquidity * (endTime - startTime);
-            uint256 reward = incentive.unclaimedRewards * userLS / totalLS;
+            uint256 totalLiquiditySeconds = lastLiquiditySeconds - incentive.liquiditySecondsStart;
+            uint256 duration = incentive.endTime - incentive.startTime;
+            uint256 passed = min(block.timestamp, incentive.endTime) - incentive.startTime;
+            uint256 userStartTime = max(userStake.createdAt, incentive.startTime);
+            uint256 userEndTime = min(block.timestamp, incentive.endTime);
+            uint256 userLiquiditySeconds = userStake.liquidity * (userEndTime - userStartTime);
+            uint256 reward = (incentive.totalRewards * passed / duration) * userLiquiditySeconds / totalLiquiditySeconds;
+            
             incentive.token.transfer(msg.sender, reward);
-            incentive.unclaimedRewards -= uint128(reward);
-            incentive.liquiditySecondsClaimed += uint224(userLS);
         }
         userStake.createdAt = uint32(block.timestamp);
     }
