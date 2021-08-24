@@ -3,7 +3,7 @@ import "@nomiclabs/hardhat-etherscan";
 import "@nomiclabs/hardhat-solhint";
 import "@nomiclabs/hardhat-waffle";
 import "hardhat-deploy";
-import "hardhat-deploy-ethers";
+// import "hardhat-deploy-ethers";
 import "hardhat-gas-reporter";
 import "hardhat-spdx-license-identifier";
 import "hardhat-watcher";
@@ -67,6 +67,10 @@ const config: HardhatUserConfig = {
       forking: {
         enabled: process.env.FORKING === "true",
         url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+      },
+      mining: {
+        auto: false,
+        interval: 0
       },
       live: false,
       saveDeployments: true,
@@ -164,7 +168,7 @@ const config: HardhatUserConfig = {
     ),
   },
   solidity: {
-    version: "0.6.12",
+    version: "0.8.7",
     settings: {
       optimizer: {
         enabled: true,

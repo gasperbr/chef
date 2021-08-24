@@ -18,15 +18,16 @@ contract Chef3 {
     // we spread our rewards over some surface area
     struct Incentive {
         uint32 startTime;
+        uint224 liquiditySecondsClaimed;
         uint32 endTime;
-        uint128 totalRewards;
-        uint224 liquiditySecondsStart;
         uint224 liquiditySecondsFinal;
+        uint128 totalRewards;
+        uint128 totalRewardsClaimed;
         IERC20 token;
     }
 
     struct PoolState {
-        uint224 liquiditySeconds;
+        uint224 accLiquiditySeconds;
         uint32 lastUpdate;
     }
 
@@ -45,7 +46,7 @@ contract Chef3 {
 
     modifier updatePoolState(IPool pool) {
         if (poolState[pool].lastUpdate != uint32(block.timestamp)) {
-            poolState[pool].liquiditySeconds += 
+            poolState[pool].accLiquiditySeconds += 
                 uint224((block.timestamp - uint256(poolState[pool].lastUpdate)) * pool.balanceOf(address(this)));
             poolState[pool].lastUpdate = uint32(block.timestamp);
         }
@@ -57,7 +58,8 @@ contract Chef3 {
         require(incentive.startTime < incentive.endTime, "");
         require(incentive.liquiditySecondsFinal == 0, "This is set automatically at the end");
         incentive.token.transferFrom(msg.sender, address(this), incentive.totalRewards);
-        incentive.liquiditySecondsStart = poolState[pool].liquiditySeconds;
+        incentive.totalRewardsClaimed = uint128(0);
+        incentive.liquiditySecondsClaimed = poolState[pool].accLiquiditySeconds;
         incentives[pool][incentiveCount[pool]++] = incentive;
     }
 
@@ -70,37 +72,47 @@ contract Chef3 {
     function claimRewards(IPool pool, uint256[] memory incentiveIds) public updatePoolState(pool) {
         Stake storage userStake = stakes[msg.sender][pool];
         for (uint256 i = 0; i < incentiveIds.length; i++) {
-            Incentive storage incentive = incentives[pool][incentiveIds[i]];
             if (i > 0) {
                 require(incentiveIds[i - 1] < incentiveIds[i], "Double spend");
             }
+            Incentive storage incentive = incentives[pool][incentiveIds[i]];
             (bool end, uint224 lastLiquiditySeconds) = _endIncentive(pool, incentiveIds[i]);
             if (end) {
                 incentive.liquiditySecondsFinal = lastLiquiditySeconds;
                 incentive.endTime = uint32(block.timestamp);
             }
-            uint256 totalLiquiditySeconds = lastLiquiditySeconds - incentive.liquiditySecondsStart;
-            uint256 duration = incentive.endTime - incentive.startTime;
             uint256 passed = min(block.timestamp, incentive.endTime) - incentive.startTime;
-            uint256 userStartTime = max(userStake.createdAt, incentive.startTime);
-            uint256 userEndTime = min(block.timestamp, incentive.endTime);
-            uint256 userLiquiditySeconds = userStake.liquidity * (userEndTime - userStartTime);
-            uint256 reward = (incentive.totalRewards * passed / duration) * userLiquiditySeconds / totalLiquiditySeconds;
-            
+            uint256 duration = incentive.endTime - incentive.startTime;
+            uint256 rewardsAvailable = (incentive.totalRewards * passed / duration) - incentive.totalRewardsClaimed;
+            uint256 totalLiquiditySeconds = lastLiquiditySeconds - incentive.liquiditySecondsClaimed;
+            uint256 userTimeInRange = getTimeInRange(
+                uint256(incentive.startTime),
+                uint256(incentive.endTime),
+                uint256(userStake.createdAt),
+                block.timestamp
+            );
+            uint256 userLiquiditySeconds = userTimeInRange * userStake.liquidity;
+            uint256 reward = rewardsAvailable * userLiquiditySeconds / totalLiquiditySeconds;
+            incentive.liquiditySecondsClaimed += uint224(userLiquiditySeconds);
+            incentive.totalRewardsClaimed += uint128(reward);
             incentive.token.transfer(msg.sender, reward);
         }
         userStake.createdAt = uint32(block.timestamp);
     }
 
+    function getTimeInRange(uint256 from, uint256 to, uint256 start, uint256 current) public pure returns (uint256) {
+        return min(current, to) - max(from, start);
+    }
+
     function _endIncentive(IPool pool, uint256 incentiveId) internal view returns (bool, uint224) {
         Incentive memory incentive = incentives[pool][incentiveId];
-        if (incentive.endTime < block.timestamp) {
-            if (incentive.liquiditySecondsFinal != 0) {
-                return (true, poolState[pool].liquiditySeconds);
+        if (incentive.endTime <= block.timestamp) {
+            if (incentive.liquiditySecondsFinal == 0) {
+                return (true, poolState[pool].accLiquiditySeconds);
             }
             return (false, incentive.liquiditySecondsFinal);
         }
-        return (false, poolState[pool].liquiditySeconds);
+        return (false, poolState[pool].accLiquiditySeconds);
     }
 
     function withdraw(IPool pool, uint256 amount) public updatePoolState(pool) {
