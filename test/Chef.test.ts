@@ -46,7 +46,7 @@ describe("Chef", function () {
     let nextBlockTimestamp = await mine();
 
     // add incentive (for "15 periods")
-    const incentive = [0, 0, nextBlockTimestamp + 15 * 10000, 0, rewardAmount, 0, rewardToken.address];
+    const incentive = [0, 0, nextBlockTimestamp + 15 * 10000, 0, rewardAmount, 0, rewardToken.address, dave.address];
     await chef.connect(dave).addIncentive(lpToken.address, incentive);
     nextBlockTimestamp = await mine();
     const incentiveStartTime = (await chef.incentives(lpToken.address, 0)).startTime;

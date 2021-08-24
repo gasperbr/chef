@@ -24,6 +24,7 @@ contract Chef3 {
         uint128 totalRewards;
         uint128 totalRewardsClaimed;
         IERC20 token;
+        address owner;
     }
 
     struct PoolState {
@@ -60,7 +61,21 @@ contract Chef3 {
         incentive.token.transferFrom(msg.sender, address(this), incentive.totalRewards);
         incentive.totalRewardsClaimed = uint128(0);
         incentive.liquiditySecondsClaimed = poolState[pool].accLiquiditySeconds;
+        incentive.owner = msg.sender;
         incentives[pool][incentiveCount[pool]++] = incentive;
+    }
+
+    // untested
+    function stopIncentive(IPool pool, uint256 incentiveId) public updatePoolState(pool) {
+        Incentive storage incentive = incentives[pool][incentiveId];
+        require(incentive.owner == msg.sender, "");
+        uint256 duration = uint256(incentive.endTime - incentive.startTime);
+        uint256 passed = uint256(incentive.endTime) - block.timestamp;
+        incentive.endTime = uint32(block.timestamp);
+        incentive.liquiditySecondsFinal = poolState[pool].accLiquiditySeconds;
+        uint256 surplus = incentive.totalRewards - (incentive.totalRewards * passed / duration);
+        incentive.token.transfer(msg.sender, surplus);
+        incentive.totalRewards -= uint128(surplus);
     }
 
     function stake(IPool pool, uint256 amount) public updatePoolState(pool) {
